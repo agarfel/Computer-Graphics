@@ -55,7 +55,7 @@ Sphere::Sphere(Vector c, double r, Vector a, bool reflect) {
 	this->C = c;
 	this->R = r;
 	this->albedo = a;
-	this->Reflect = reflect;
+	this->Mirror = reflect;
 }
 struct Intersection Sphere::intersect(Ray& r) const {
     Vector OC = r.O - this->C;
@@ -101,19 +101,19 @@ Ray::Ray(Vector o, Vector dir) {
 }
 
 Scene::Scene(){
-    this->arr.emplace_back(Vector(0, 0, 0), 10, Vector(0.8, 0.8, 0.8));
+    this->arr.emplace_back(Vector(0, 0, 0), 10, Vector(0.8, 0.8, 0.8), true);
 	this->arr.emplace_back(Vector(1000,0,0), 940, Vector(0.6, 0.5, 0.1));
 	this->arr.emplace_back(Vector(-1000,0,0), 940, Vector(0.9, 0.2, 0.9));
 	this->arr.emplace_back(Vector(0,0,-1000), 940, Vector(0.4, 0.8, 0.7));
 	this->arr.emplace_back(Vector(0,1000,0), 940, Vector(0.2, 0.5, 0.9));
 	this->arr.emplace_back(Vector(0,-1000,0), 990, Vector(0.3, 0.4, 0.7));
-	this->arr.emplace_back(Vector(0,0,1000), 940,  Vector(0.9, 0.4, 0.3));
+	this->arr.emplace_back(Vector(0,0,1000), 940,  Vector(0.9, 0.4, 0.3), true);
 	this->lights.emplace_back(Light(Vector(-10,20,40), 8*pow(10,9)));
 }
 
 
 
-Vector Scene::get_colour(Ray& ray, Vector& camera) const {
+Vector Scene::get_colour(Ray& ray, int max_reflection) const {
 
 	double dist = 100000;
 	struct Intersection intersection;
@@ -121,10 +121,10 @@ Vector Scene::get_colour(Ray& ray, Vector& camera) const {
 	intersection.intersects = false;
 	for (auto s : this->arr) {
 		struct Intersection tmp = s.intersect(ray);
-		if (tmp.intersects && ((camera - tmp.point).norm() < dist)) {
+		if (tmp.intersects && ((ray.O - tmp.point).norm() < dist)) {
 			intersection = tmp;
 			sphere = s;
-			dist = (camera - tmp.point).norm();
+			dist = (ray.O - tmp.point).norm();
 		}
 	}
 
@@ -134,8 +134,8 @@ Vector Scene::get_colour(Ray& ray, Vector& camera) const {
 
 	Vector normal = intersection.point - sphere.C;
 	normal.normalize();
-	
-	intersection.point = intersection.point + 1e-6 *normal;
+
+	intersection.point = intersection.point + pow(10, -12)*normal;
 	Vector LP = this->lights[0].P - intersection.point;
 
 	dist = LP.norm();
@@ -147,11 +147,17 @@ Vector Scene::get_colour(Ray& ray, Vector& camera) const {
 		}
 	} 
 
+	if (sphere.Mirror && max_reflection > 0){
+		Ray mirror_ray = Ray(intersection.point, ray.u - 2*dot(ray.u, normal)*normal);
+		return this->get_colour(mirror_ray, max_reflection - 1);
+	}
 
 	Vector material = sphere.albedo/M_PI;
 	double attenuation = this->lights[0].I / (4 * M_PI * LP.norm2());
 	double angle = dot(normal, LP/LP.norm());
 	if (angle < 0){return Vector(100,100,100); }
+
+
 	return angle*material*attenuation;
 }
 
@@ -161,6 +167,7 @@ int main() {
 	int H = 512;
 	double alpha = 60*M_PI / 180;
 	Vector camera = Vector(0,0,55);
+	int max_reflection = 2;
 	std::vector<unsigned char> image(W * H * 3, 0);
 	Scene scene = Scene();
 	for (int i = 0; i < H; i++) {
@@ -169,7 +176,7 @@ int main() {
 			dir.normalize();
 			Ray r = Ray(camera,  dir);
 			
-			Vector colour = scene.get_colour(r, camera);
+			Vector colour = scene.get_colour(r, max_reflection);
 
             image[(i * W + j) * 3 + 0] = std::max(0., std::min(255., std::pow(colour.data[0], 1/2.2)));
             image[(i * W + j) * 3 + 1] = std::max(0., std::min(255., std::pow(colour.data[1], 1/2.2)));

@@ -35,11 +35,11 @@ class Light{
 
 class Sphere {
 public:
-	explicit Sphere(Vector, double, Vector, bool reflect = false);
+	explicit Sphere(Vector, double, Vector, bool mirror = false);
     Vector C;
     double R;
     Vector albedo;
-	bool Reflect;
+	bool Mirror;
 	struct Intersection intersect(Ray&) const;
 };
 
@@ -55,7 +55,7 @@ class Scene {
 		explicit Scene();
         std::vector<Sphere> arr;
         struct Intersection intersect(Ray&) const;
-        Vector get_colour(Ray&, Vector&) const;
+        Vector get_colour(Ray&, int) const;
 		std::vector<Light> lights;
 };
 
