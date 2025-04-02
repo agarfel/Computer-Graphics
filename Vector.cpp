@@ -10,7 +10,7 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
-std::default_random_engine gen;
+std::default_random_engine engine;
 std::uniform_real_distribution<double> unif(0.0, 1.0);
 
 Vector::Vector(double x = 0, double y = 0, double z = 0) {
@@ -116,7 +116,7 @@ Scene::Scene(){
 	this->arr.emplace_back(Vector(0,1000,0), 940, Vector(0.2, 0.5, 0.9));
 	this->arr.emplace_back(Vector(0,-1000,0), 990, Vector(0.3, 0.4, 0.7));
 	this->arr.emplace_back(Vector(0,0,1000), 940,  Vector(0.9, 0.4, 0.3));
-	this->lights.emplace_back(Light(Vector(-10,20,40), 8*pow(10,9)));
+	this->lights.emplace_back(Light(Vector(-10,20,40), 1*pow(10,10)));
 }
 
 
@@ -156,6 +156,7 @@ Vector Scene::get_colour(Ray& ray, int max_reflection) const {
 		return this->get_colour(mirror_ray, max_reflection);
 	}
 
+	// Check for shadow
 	bool shadow = false;
 	for (auto s : this->arr) {
 		struct Intersection tmp = s.intersect(r);
@@ -187,8 +188,8 @@ Vector random_vector(Vector& normal){
 
 	// Sample Random Direction
 		// Compute x, y, z
-		double r1 = unif(gen);
-		double r2 = unif(gen);
+		double r1 = unif(engine);
+		double r2 = unif(engine);
 
 		double x = cos(2*M_PI*r1)*sqrt(1-r2);
 		double y = sin(2*M_PI*r1)*sqrt(1-r2);
@@ -219,20 +220,25 @@ int main() {
 	int H = 512;
 	double alpha = 60*M_PI / 180;
 	Vector camera = Vector(0,0,55);
-	int max_reflection = 10;
+	int max_reflection = 7;
 	std::vector<unsigned char> image(W * H * 3, 0);
 	Scene scene = Scene();
 
 	#pragma omp parallel for schedule(dynamic, 1)
 	for (int i = 0; i < H; i++) {
+		// int tid = omp_get_thread_num();
 		for (int j = 0; j < W; j++) {
-			Vector dir = Vector(j - W/2 +0.5, H/2 - i - 0.5, (-W/(2.*tan(alpha/2))));
-			dir.normalize();
-			Ray r = Ray(camera,  dir);
-
 			Vector colour = Vector();
 			int N = 100;
 			for (int n = 0; n < N; n++) {
+				double r1 = unif(engine);
+				double r2 = unif(engine);
+				double x1 = sqrt(-2*log(r1))*cos(2.*M_PI*r2) * 0.25; // Standard deviation is 0.25
+				double x2 = sqrt(-2*log(r1))*sin(2.*M_PI*r2) * 0.25;
+
+				Vector dir = Vector(j - W/2 +0.5 +x1, H/2 - i - 0.5 +x2, (-W/(2.*tan(alpha/2))));
+				dir.normalize();
+				Ray r = Ray(camera,  dir);
 				colour = colour + scene.get_colour(r, max_reflection);
 			}
 			colour = colour/N;
