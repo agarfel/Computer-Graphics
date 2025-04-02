@@ -59,4 +59,6 @@ class Scene {
 		std::vector<Light> lights;
 };
 
+Vector random_vector(Vector&);
+
 int main();
