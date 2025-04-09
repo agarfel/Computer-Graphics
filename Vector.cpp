@@ -39,12 +39,14 @@ Vector operator+(const Vector& a, const Vector& b) {
 Vector operator-(const Vector& a, const Vector& b) {
 	return Vector(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 }
+Vector operator-(const Vector& a) {
+	return Vector(-a[0], -a[1], -a[2]);
+}
 Vector operator*(const double a, const Vector& b) {
 	return Vector(a*b[0], a*b[1], a*b[2]);
 }
-
 Vector operator*(const Vector& a, const Vector& b) {
-	return Vector(a[0]*b[0], a[0]*b[1], a[0]*b[2]);
+	return Vector(a[0]*b[0], a[1]*b[1], a[2]*b[2]);
 }
 Vector operator*(const Vector& a, const double b) {
 	return Vector(a[0]*b, a[1]*b, a[2]*b);
@@ -59,11 +61,13 @@ Vector cross(const Vector& a, const Vector& b) {
 	return Vector(a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]);
 }
 
-Sphere::Sphere(Vector c, double r, Vector a, bool reflect) {
+Sphere::Sphere(Vector c, double r, Vector a, bool reflect, bool transparent, double n) {
 	this->C = c;
 	this->R = r;
 	this->albedo = a;
 	this->Mirror = reflect;
+	this->Transparent = transparent;
+	this->n = n;
 }
 struct Intersection Sphere::intersect(Ray& r) const {
     Vector OC = r.O - this->C;
@@ -109,19 +113,21 @@ Ray::Ray(Vector o, Vector dir) {
 }
 
 Scene::Scene(){
-    this->arr.emplace_back(Vector(0, 0, 0), 10, Vector(0.8, 0.8, 0.8), true);
+	this->arr.emplace_back(Vector(-20, 0, 0), 10, Vector(0.8, 0.8, 0.8), true);
+    this->arr.emplace_back(Vector(0, 0, 0), 10, Vector(0.8, 0.8, 0.8), false, true, 1.5);
+	this->arr.emplace_back(Vector(20, 0, 0), 10, Vector(0.8, 0.8, 0.8), false, true, 1.5);
+    this->arr.emplace_back(Vector(20, 0, 0), 5, Vector(0.8, 0.8, 0.8), false, true, 1.5);
 	this->arr.emplace_back(Vector(1000,0,0), 940, Vector(0.6, 0.5, 0.1));
 	this->arr.emplace_back(Vector(-1000,0,0), 940, Vector(0.9, 0.2, 0.9));
 	this->arr.emplace_back(Vector(0,0,-1000), 940, Vector(0.4, 0.8, 0.7));
 	this->arr.emplace_back(Vector(0,1000,0), 940, Vector(0.2, 0.5, 0.9));
 	this->arr.emplace_back(Vector(0,-1000,0), 990, Vector(0.3, 0.4, 0.7));
 	this->arr.emplace_back(Vector(0,0,1000), 940,  Vector(0.9, 0.4, 0.3));
-	this->lights.emplace_back(Light(Vector(-10,20,40), 1*pow(10,10)));
+	this->lights.emplace_back(Light(Vector(-10,20,40), 8*pow(10,9)));
 }
 
 
-
-Vector Scene::get_colour(Ray& ray, int max_reflection) const {
+Vector Scene::get_colour(Ray& ray, int max_reflection, double n1) const {
 
 	double dist = 100000;
 	struct Intersection intersection;
@@ -143,17 +149,46 @@ Vector Scene::get_colour(Ray& ray, int max_reflection) const {
 	Vector normal = intersection.point - sphere.C;
 	normal.normalize();
 
-	intersection.point = intersection.point + pow(10, -12)*normal;
-	Vector LP = this->lights[0].P - intersection.point;
+	Vector LP = this->lights[0].P - intersection.point + normal*0.00001;
 
 	dist = LP.norm();
-	Ray r = Ray(intersection.point, LP/LP.norm());
+	Ray r = Ray(intersection.point + (LP/LP.norm()*0.00001), LP/LP.norm());
 
+	if (sphere.Transparent && (max_reflection > 0)){
+		double n2 = sphere.n;
+		double iN = dot(ray.u, normal);
+		Vector refraction_dir = Vector();
+		if (iN > 0){ //Ray is exiting the sphere
+			normal = -normal;
+			std::swap(n1,n2);
+			iN = dot(ray.u, normal);
+		}
+		double delta = 1 - pow(n1/n2, 2)*(1 - pow(iN, 2));
 
+		if (delta < 0){ // Total internal reflection
+			refraction_dir = ray.u - 2*dot(ray.u, normal)*normal;
+			Ray mirror_ray = Ray(intersection.point + 0.00001*refraction_dir, refraction_dir);
+			return this->get_colour(mirror_ray, max_reflection -1, n1);
+		}
+		Vector tn = - sqrt(delta)*normal;
+		Vector tt = (n1/n2)*(ray.u - iN*normal);
+		refraction_dir = tt + tn;
+		refraction_dir.normalize();
+		double k0 = pow((n1 - n2) / (n1 + n2), 2);
+		double R = k0 + (1 - k0)*pow(1 - abs(iN), 5);
+		double T = 1 - R;
+		if (unif(engine) > T) {
+			refraction_dir =  ray.u - 2*dot(ray.u, normal)*normal;
+		}
+		Ray refraction_ray = Ray(intersection.point + 0.00001*refraction_dir, refraction_dir);
+		return this->get_colour(refraction_ray, max_reflection -1, n1);
+	}
+	
 
 	if (sphere.Mirror && max_reflection > 0){
 		Ray mirror_ray = Ray(intersection.point, ray.u - 2*dot(ray.u, normal)*normal);
-		return this->get_colour(mirror_ray, max_reflection);
+		// std::cout << "Mirror" << std::endl;
+		return this->get_colour(mirror_ray, max_reflection -1, n1);
 	}
 
 	// Check for shadow
@@ -177,8 +212,9 @@ Vector Scene::get_colour(Ray& ray, int max_reflection) const {
 
 	// Indirect Light
 	Vector random_dir = random_vector(normal);
-	Ray indirect_ray = Ray(intersection.point, random_dir);
-	Vector indirect = sphere.albedo * get_colour(indirect_ray, max_reflection -1);
+	Ray indirect_ray = Ray(intersection.point + 0.00001*random_dir, random_dir);
+	// std::cout << "Indirect" << std::endl;
+	Vector indirect = sphere.albedo * get_colour(indirect_ray, max_reflection -1, n1);
 
 		
 	return direct_light + indirect;
@@ -220,7 +256,9 @@ int main() {
 	int H = 512;
 	double alpha = 60*M_PI / 180;
 	Vector camera = Vector(0,0,55);
-	int max_reflection = 7;
+	int max_reflection = 5;
+	int N = 100;
+
 	std::vector<unsigned char> image(W * H * 3, 0);
 	Scene scene = Scene();
 
@@ -229,7 +267,6 @@ int main() {
 		// int tid = omp_get_thread_num();
 		for (int j = 0; j < W; j++) {
 			Vector colour = Vector();
-			int N = 100;
 			for (int n = 0; n < N; n++) {
 				double r1 = unif(engine);
 				double r2 = unif(engine);
@@ -239,7 +276,7 @@ int main() {
 				Vector dir = Vector(j - W/2 +0.5 +x1, H/2 - i - 0.5 +x2, (-W/(2.*tan(alpha/2))));
 				dir.normalize();
 				Ray r = Ray(camera,  dir);
-				colour = colour + scene.get_colour(r, max_reflection);
+				colour = colour + scene.get_colour(r, max_reflection, 1.0);
 			}
 			colour = colour/N;
 			
