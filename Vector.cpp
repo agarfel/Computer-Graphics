@@ -1,8 +1,11 @@
 #define _CRT_SECURE_NO_WARNINGS 1
 #include <vector>
-#include "Vector.h"
 #include <iostream>
 #include <random>
+#include <string>
+#include <stdio.h>
+#include <algorithm>
+#include "Vector.h"
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
@@ -13,11 +16,178 @@
 std::default_random_engine engine;
 std::uniform_real_distribution<double> unif(0.0, 1.0);
 
-Vector::Vector(double x = 0, double y = 0, double z = 0) {
-	data[0] = x;
-	data[1] = y;
-	data[2] = z;
-}
+void TriangleMesh::readOBJ(const char* obj) {
+		char matfile[255];
+		char grp[255];
+	
+		FILE* f;
+		f = fopen(obj, "r");
+		int curGroup = -1;
+		while (!feof(f)) {
+			char line[255];
+			if (!fgets(line, 255, f)) break;
+	
+			std::string linetrim(line);
+			linetrim.erase(linetrim.find_last_not_of(" \r\t") + 1);
+			strcpy(line, linetrim.c_str());
+	
+			if (line[0] == 'u' && line[1] == 's') {
+				sscanf(line, "usemtl %[^\n]\n", grp);
+				curGroup++;
+			}
+	
+			if (line[0] == 'v' && line[1] == ' ') {
+				Vector vec;
+	
+				Vector col;
+				if (sscanf(line, "v %lf %lf %lf %lf %lf %lf\n", &vec[0], &vec[1], &vec[2], &col[0], &col[1], &col[2]) == 6) {
+					col[0] = std::min(1., std::max(0., col[0]));
+					col[1] = std::min(1., std::max(0., col[1]));
+					col[2] = std::min(1., std::max(0., col[2]));
+	
+					vertices.push_back(vec);
+					vertexcolors.push_back(col);
+	
+				} else {
+					sscanf(line, "v %lf %lf %lf\n", &vec[0], &vec[1], &vec[2]);
+					vertices.push_back(vec);
+				}
+			}
+			if (line[0] == 'v' && line[1] == 'n') {
+				Vector vec;
+				sscanf(line, "vn %lf %lf %lf\n", &vec[0], &vec[1], &vec[2]);
+				normals.push_back(vec);
+			}
+			if (line[0] == 'v' && line[1] == 't') {
+				Vector vec;
+				sscanf(line, "vt %lf %lf\n", &vec[0], &vec[1]);
+				uvs.push_back(vec);
+			}
+			if (line[0] == 'f') {
+				TriangleIndices t;
+				int i0, i1, i2, i3;
+				int j0, j1, j2, j3;
+				int k0, k1, k2, k3;
+				int nn;
+				t.group = curGroup;
+	
+				char* consumedline = line + 1;
+				int offset;
+	
+				nn = sscanf(consumedline, "%u/%u/%u %u/%u/%u %u/%u/%u%n", &i0, &j0, &k0, &i1, &j1, &k1, &i2, &j2, &k2, &offset);
+				if (nn == 9) {
+					if (i0 < 0) t.vtxi = vertices.size() + i0; else t.vtxi = i0 - 1;
+					if (i1 < 0) t.vtxj = vertices.size() + i1; else t.vtxj = i1 - 1;
+					if (i2 < 0) t.vtxk = vertices.size() + i2; else t.vtxk = i2 - 1;
+					if (j0 < 0) t.uvi = uvs.size() + j0; else   t.uvi = j0 - 1;
+					if (j1 < 0) t.uvj = uvs.size() + j1; else   t.uvj = j1 - 1;
+					if (j2 < 0) t.uvk = uvs.size() + j2; else   t.uvk = j2 - 1;
+					if (k0 < 0) t.ni = normals.size() + k0; else    t.ni = k0 - 1;
+					if (k1 < 0) t.nj = normals.size() + k1; else    t.nj = k1 - 1;
+					if (k2 < 0) t.nk = normals.size() + k2; else    t.nk = k2 - 1;
+					indices.push_back(t);
+				} else {
+					nn = sscanf(consumedline, "%u/%u %u/%u %u/%u%n", &i0, &j0, &i1, &j1, &i2, &j2, &offset);
+					if (nn == 6) {
+						if (i0 < 0) t.vtxi = vertices.size() + i0; else t.vtxi = i0 - 1;
+						if (i1 < 0) t.vtxj = vertices.size() + i1; else t.vtxj = i1 - 1;
+						if (i2 < 0) t.vtxk = vertices.size() + i2; else t.vtxk = i2 - 1;
+						if (j0 < 0) t.uvi = uvs.size() + j0; else   t.uvi = j0 - 1;
+						if (j1 < 0) t.uvj = uvs.size() + j1; else   t.uvj = j1 - 1;
+						if (j2 < 0) t.uvk = uvs.size() + j2; else   t.uvk = j2 - 1;
+						indices.push_back(t);
+					} else {
+						nn = sscanf(consumedline, "%u %u %u%n", &i0, &i1, &i2, &offset);
+						if (nn == 3) {
+							if (i0 < 0) t.vtxi = vertices.size() + i0; else t.vtxi = i0 - 1;
+							if (i1 < 0) t.vtxj = vertices.size() + i1; else t.vtxj = i1 - 1;
+							if (i2 < 0) t.vtxk = vertices.size() + i2; else t.vtxk = i2 - 1;
+							indices.push_back(t);
+						} else {
+							nn = sscanf(consumedline, "%u//%u %u//%u %u//%u%n", &i0, &k0, &i1, &k1, &i2, &k2, &offset);
+							if (i0 < 0) t.vtxi = vertices.size() + i0; else t.vtxi = i0 - 1;
+							if (i1 < 0) t.vtxj = vertices.size() + i1; else t.vtxj = i1 - 1;
+							if (i2 < 0) t.vtxk = vertices.size() + i2; else t.vtxk = i2 - 1;
+							if (k0 < 0) t.ni = normals.size() + k0; else    t.ni = k0 - 1;
+							if (k1 < 0) t.nj = normals.size() + k1; else    t.nj = k1 - 1;
+							if (k2 < 0) t.nk = normals.size() + k2; else    t.nk = k2 - 1;
+							indices.push_back(t);
+						}
+					}
+				}
+	
+				consumedline = consumedline + offset;
+	
+				while (true) {
+					if (consumedline[0] == '\n') break;
+					if (consumedline[0] == '\0') break;
+					nn = sscanf(consumedline, "%u/%u/%u%n", &i3, &j3, &k3, &offset);
+					TriangleIndices t2;
+					t2.group = curGroup;
+					if (nn == 3) {
+						if (i0 < 0) t2.vtxi = vertices.size() + i0; else    t2.vtxi = i0 - 1;
+						if (i2 < 0) t2.vtxj = vertices.size() + i2; else    t2.vtxj = i2 - 1;
+						if (i3 < 0) t2.vtxk = vertices.size() + i3; else    t2.vtxk = i3 - 1;
+						if (j0 < 0) t2.uvi = uvs.size() + j0; else  t2.uvi = j0 - 1;
+						if (j2 < 0) t2.uvj = uvs.size() + j2; else  t2.uvj = j2 - 1;
+						if (j3 < 0) t2.uvk = uvs.size() + j3; else  t2.uvk = j3 - 1;
+						if (k0 < 0) t2.ni = normals.size() + k0; else   t2.ni = k0 - 1;
+						if (k2 < 0) t2.nj = normals.size() + k2; else   t2.nj = k2 - 1;
+						if (k3 < 0) t2.nk = normals.size() + k3; else   t2.nk = k3 - 1;
+						indices.push_back(t2);
+						consumedline = consumedline + offset;
+						i2 = i3;
+						j2 = j3;
+						k2 = k3;
+					} else {
+						nn = sscanf(consumedline, "%u/%u%n", &i3, &j3, &offset);
+						if (nn == 2) {
+							if (i0 < 0) t2.vtxi = vertices.size() + i0; else    t2.vtxi = i0 - 1;
+							if (i2 < 0) t2.vtxj = vertices.size() + i2; else    t2.vtxj = i2 - 1;
+							if (i3 < 0) t2.vtxk = vertices.size() + i3; else    t2.vtxk = i3 - 1;
+							if (j0 < 0) t2.uvi = uvs.size() + j0; else  t2.uvi = j0 - 1;
+							if (j2 < 0) t2.uvj = uvs.size() + j2; else  t2.uvj = j2 - 1;
+							if (j3 < 0) t2.uvk = uvs.size() + j3; else  t2.uvk = j3 - 1;
+							consumedline = consumedline + offset;
+							i2 = i3;
+							j2 = j3;
+							indices.push_back(t2);
+						} else {
+							nn = sscanf(consumedline, "%u//%u%n", &i3, &k3, &offset);
+							if (nn == 2) {
+								if (i0 < 0) t2.vtxi = vertices.size() + i0; else    t2.vtxi = i0 - 1;
+								if (i2 < 0) t2.vtxj = vertices.size() + i2; else    t2.vtxj = i2 - 1;
+								if (i3 < 0) t2.vtxk = vertices.size() + i3; else    t2.vtxk = i3 - 1;
+								if (k0 < 0) t2.ni = normals.size() + k0; else   t2.ni = k0 - 1;
+								if (k2 < 0) t2.nj = normals.size() + k2; else   t2.nj = k2 - 1;
+								if (k3 < 0) t2.nk = normals.size() + k3; else   t2.nk = k3 - 1;                             
+								consumedline = consumedline + offset;
+								i2 = i3;
+								k2 = k3;
+								indices.push_back(t2);
+							} else {
+								nn = sscanf(consumedline, "%u%n", &i3, &offset);
+								if (nn == 1) {
+									if (i0 < 0) t2.vtxi = vertices.size() + i0; else    t2.vtxi = i0 - 1;
+									if (i2 < 0) t2.vtxj = vertices.size() + i2; else    t2.vtxj = i2 - 1;
+									if (i3 < 0) t2.vtxk = vertices.size() + i3; else    t2.vtxk = i3 - 1;
+									consumedline = consumedline + offset;
+									i2 = i3;
+									indices.push_back(t2);
+								} else {
+									consumedline = consumedline + 1;
+								}
+							}
+						}
+					}
+				}
+	
+			}
+	
+		}
+		fclose(f);
+	
+	}	
 double Vector::norm2() const {
 	return data[0] * data[0] + data[1] * data[1] + data[2] * data[2];
 }
@@ -32,7 +202,6 @@ void Vector::normalize() {
 }
 double Vector::operator[](int i) const { return data[i]; };
 double& Vector::operator[](int i) { return data[i]; };
-
 Vector operator+(const Vector& a, const Vector& b) {
 	return Vector(a[0] + b[0], a[1] + b[1], a[2] + b[2]);
 }
@@ -60,15 +229,15 @@ double dot(const Vector& a, const Vector& b) {
 Vector cross(const Vector& a, const Vector& b) {
 	return Vector(a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]);
 }
-
-Sphere::Sphere(Vector c, double r, Vector a, bool reflect, bool transparent, double n) {
+Sphere::Sphere(Vector c, double r, Vector a, bool reflect, bool transparent) {
 	this->C = c;
 	this->R = r;
 	this->albedo = a;
 	this->Mirror = reflect;
 	this->Transparent = transparent;
-	this->n = n;
 }
+
+
 struct Intersection Sphere::intersect(Ray& r) const {
     Vector OC = r.O - this->C;
     double b = 2 * dot(r.u, OC);
@@ -98,64 +267,102 @@ struct Intersection Sphere::intersect(Ray& r) const {
 
     result.intersects = true;
     result.point = r.O + t * r.u;
+	result.normal = result.point - this->C;
+	result.normal.normalize();
     return result;
 }
+void TriangleMesh::scale_translate(double s, const Vector& t){
+	for (int i = 0; i < vertices.size(); i++){
+		vertices[i][0] = vertices[i][0]*s + t[0];
+		vertices[i][1] = vertices[i][1]*s + t[1];
+		vertices[i][2] = vertices[i][2]*s + t[2];
+	}
+}
+struct Intersection TriangleMesh::intersect(Ray& r) const {
+	struct Intersection intersection;
+	intersection.intersects = false;
+	double t_prev = 1E9;
 
+	for (int i= 0; i < indices.size(); i++){
+		const Vector& A = vertices[indices[i].vtxi];
+		const Vector& B = vertices[indices[i].vtxj];
+		const Vector& C = vertices[indices[i].vtxk];
+
+		const Vector e1 = B - A;
+		const Vector e2 = C - A;
+		Vector N = cross(e1, e2);		
+		const Vector AOu = cross((A-r.O),r.u);
+		double invuN = 1/dot(r.u, N);
+		double t = dot(A - r.O, N)*invuN;
+		if (t < 0) continue;
+		double beta = dot(e2, AOu)*invuN;
+		if (beta < 0 or beta > 1) continue;
+		double gamma = -dot(e1, AOu)*invuN;
+		if (gamma < 0 or gamma > 1) continue;
+		double alpha = 1 - beta - gamma;
+		if (alpha < 0 or alpha > 1) continue;
+
+		if (t > 0.000001 and t < t_prev){
+			Vector P = A + beta*e1 + gamma*e2;
+			t_prev = t;
+			intersection.point = P;
+			intersection.intersects = true;
+			intersection.normal = alpha*normals[indices[i].ni] + beta*normals[indices[i].nj] + gamma*normals[indices[i].nk];
+			intersection.normal.normalize();
+		}
+	}
+	return intersection;
+};
 
 Light::Light(Vector p, double i) {
 	this->P = p;
 	this->I = i;
 }
-
 Ray::Ray(Vector o, Vector dir) {
 	this->O = o;
 	this->u = dir;
 }
-
 Scene::Scene(){
-	this->arr.emplace_back(Vector(-20, 0, 0), 10, Vector(0.8, 0.8, 0.8), true);
-    this->arr.emplace_back(Vector(0, 0, 0), 10, Vector(0.8, 0.8, 0.8), false, true, 1.5);
-	this->arr.emplace_back(Vector(20, 0, 0), 10, Vector(0.8, 0.8, 0.8), false, true, 1.5);
-    this->arr.emplace_back(Vector(20, 0, 0), 5, Vector(0.8, 0.8, 0.8), false, true, 1.5);
-	this->arr.emplace_back(Vector(1000,0,0), 940, Vector(0.6, 0.5, 0.1));
-	this->arr.emplace_back(Vector(-1000,0,0), 940, Vector(0.9, 0.2, 0.9));
-	this->arr.emplace_back(Vector(0,0,-1000), 940, Vector(0.4, 0.8, 0.7));
-	this->arr.emplace_back(Vector(0,1000,0), 940, Vector(0.2, 0.5, 0.9));
-	this->arr.emplace_back(Vector(0,-1000,0), 990, Vector(0.3, 0.4, 0.7));
-	this->arr.emplace_back(Vector(0,0,1000), 940,  Vector(0.9, 0.4, 0.3));
+	// this->arr.push_back(new Sphere(Vector(-20, 0, 0), 10, Vector(0.8, 0.8, 0.8), true));
+    // this->arr.push_back(new Sphere(Vector(0, 0, 0), 10, Vector(0.8, 0.8, 0.8), false));
+	// this->arr.push_back(new Sphere(Vector(20, 0, 0), 10, Vector(0.8, 0.8, 0.8), false));
+    // this->arr.push_back(new Sphere(Vector(20, 0, 0), 9, Vector(0.8, 0.8, 0.8), false));
+	this->arr.push_back(new Sphere(Vector(1000,0,0), 940, Vector(0.6, 0.5, 0.1)));
+	this->arr.push_back(new Sphere( Vector(-1000,0,0), 940, Vector(0.9, 0.2, 0.9)));
+	this->arr.push_back(new Sphere( Vector(0,0,-1000), 940, Vector(0.4, 0.8, 0.7)));
+	this->arr.push_back(new Sphere( Vector(0,1000,0), 940, Vector(0.2, 0.5, 0.9)));
+	this->arr.push_back(new Sphere( Vector(0,-1000,0), 990, Vector(0.3, 0.4, 0.7)));
+	this->arr.push_back(new Sphere( Vector(0,0,1000), 940,  Vector(0.9, 0.4, 0.3)));
 	this->lights.emplace_back(Light(Vector(-10,20,40), 8*pow(10,9)));
 }
-
-
 Vector Scene::get_colour(Ray& ray, int max_reflection, double n1) const {
 
 	double dist = 100000;
 	struct Intersection intersection;
-	Sphere sphere = this->arr[0];
+	const Geometry* object = this->arr[0];
 	intersection.intersects = false;
 	for (auto s : this->arr) {
-		struct Intersection tmp = s.intersect(ray);
+		struct Intersection tmp = s->intersect(ray);
 		if (tmp.intersects && ((ray.O - tmp.point).norm() < dist)) {
 			intersection = tmp;
-			sphere = s;
+			object = s;
 			dist = (ray.O - tmp.point).norm();
 		}
 	}
 
 	if (! intersection.intersects){
-		return Vector(100, 100, 100);
+		return Vector(0, 0, 0);
 	}
 
-	Vector normal = intersection.point - sphere.C;
+	Vector normal = intersection.normal;
 	normal.normalize();
-
 	Vector LP = this->lights[0].P - intersection.point + normal*0.00001;
 
 	dist = LP.norm();
 	Ray r = Ray(intersection.point + (LP/LP.norm()*0.00001), LP/LP.norm());
 
-	if (sphere.Transparent && (max_reflection > 0)){
-		double n2 = sphere.n;
+	if (object->Transparent && (max_reflection > 0)){
+		double n2 = 1.5;
 		double iN = dot(ray.u, normal);
 		Vector refraction_dir = Vector();
 		if (iN > 0){ //Ray is exiting the sphere
@@ -167,25 +374,26 @@ Vector Scene::get_colour(Ray& ray, int max_reflection, double n1) const {
 
 		if (delta < 0){ // Total internal reflection
 			refraction_dir = ray.u - 2*dot(ray.u, normal)*normal;
+			refraction_dir.normalize();
 			Ray mirror_ray = Ray(intersection.point + 0.00001*refraction_dir, refraction_dir);
 			return this->get_colour(mirror_ray, max_reflection -1, n1);
 		}
 		Vector tn = - sqrt(delta)*normal;
 		Vector tt = (n1/n2)*(ray.u - iN*normal);
 		refraction_dir = tt + tn;
-		refraction_dir.normalize();
 		double k0 = pow((n1 - n2) / (n1 + n2), 2);
 		double R = k0 + (1 - k0)*pow(1 - abs(iN), 5);
 		double T = 1 - R;
 		if (unif(engine) > T) {
 			refraction_dir =  ray.u - 2*dot(ray.u, normal)*normal;
 		}
+		refraction_dir.normalize();
 		Ray refraction_ray = Ray(intersection.point + 0.00001*refraction_dir, refraction_dir);
 		return this->get_colour(refraction_ray, max_reflection -1, n1);
 	}
 	
 
-	if (sphere.Mirror && max_reflection > 0){
+	if (object->Mirror && max_reflection > 0){
 		Ray mirror_ray = Ray(intersection.point, ray.u - 2*dot(ray.u, normal)*normal);
 		// std::cout << "Mirror" << std::endl;
 		return this->get_colour(mirror_ray, max_reflection -1, n1);
@@ -194,7 +402,7 @@ Vector Scene::get_colour(Ray& ray, int max_reflection, double n1) const {
 	// Check for shadow
 	bool shadow = false;
 	for (auto s : this->arr) {
-		struct Intersection tmp = s.intersect(r);
+		struct Intersection tmp = s->intersect(r);
 		if (tmp.intersects && ((intersection.point - tmp.point).norm() < dist)) {
 			shadow = true;
 		}
@@ -202,10 +410,12 @@ Vector Scene::get_colour(Ray& ray, int max_reflection, double n1) const {
 	// Direct Light
 	Vector direct_light = Vector();
 	if (not shadow){
-		Vector material = sphere.albedo/M_PI;
+		Vector material = object->albedo/M_PI;
 		double attenuation = this->lights[0].I / (4 * M_PI * LP.norm2());
 		double angle = dot(normal, LP/LP.norm());
-		direct_light =  angle*material*attenuation;
+		if (angle >= 0 ){
+			direct_light =  angle*material*attenuation;
+		}
 	}
 	if (max_reflection == 0){return direct_light; }
 
@@ -214,10 +424,10 @@ Vector Scene::get_colour(Ray& ray, int max_reflection, double n1) const {
 	Vector random_dir = random_vector(normal);
 	Ray indirect_ray = Ray(intersection.point + 0.00001*random_dir, random_dir);
 	// std::cout << "Indirect" << std::endl;
-	Vector indirect = sphere.albedo * get_colour(indirect_ray, max_reflection -1, n1);
+	Vector indirect = object->albedo * get_colour(indirect_ray, max_reflection -1, n1);
 
 		
-	return direct_light + indirect;
+	return direct_light; // + indirect;
 }
 
 Vector random_vector(Vector& normal){
@@ -250,17 +460,36 @@ Vector random_vector(Vector& normal){
 		Vector T2 = cross(normal,T1);
 		return x*T1 +y*T2 + z*normal;
 }
+// Ray Plane intersection
+
+
+
+// Bounding box intersection
+// Box containing mesh, if ray doesnt intersect the box, we don't look at the triangles
+// { // Intersection with plane x axis
+// 	double tx = (B.x - O.x)/u.x		// B a point in the plane
+
+// }
+
 
 int main() {
-	int W = 512;
-	int H = 512;
+	int W = 256;
+	int H = 256;
+	TriangleMesh* mesh = new TriangleMesh();
+	mesh->readOBJ("cat.obj");
+	mesh->albedo = Vector(0.8, 0.8, 0.8);
+
+	mesh->scale_translate(0.6, Vector(0,-10,0));
+
 	double alpha = 60*M_PI / 180;
 	Vector camera = Vector(0,0,55);
-	int max_reflection = 5;
-	int N = 100;
+	int max_reflection = 2;
+	int N = 5;
 
 	std::vector<unsigned char> image(W * H * 3, 0);
 	Scene scene = Scene();
+	scene.arr.push_back(mesh);
+
 
 	#pragma omp parallel for schedule(dynamic, 1)
 	for (int i = 0; i < H; i++) {
