@@ -229,12 +229,13 @@ double dot(const Vector& a, const Vector& b) {
 Vector cross(const Vector& a, const Vector& b) {
 	return Vector(a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]);
 }
-Sphere::Sphere(Vector c, double r, Vector a, bool reflect, bool transparent) {
+Sphere::Sphere(Vector c, double r, Vector a, bool reflect, bool transparent, bool inner) {
 	this->C = c;
 	this->R = r;
 	this->albedo = a;
 	this->Mirror = reflect;
 	this->Transparent = transparent;
+	this->Inner = inner;
 }
 
 
@@ -271,6 +272,45 @@ struct Intersection Sphere::intersect(Ray& r) const {
 	result.normal.normalize();
     return result;
 }
+
+void TriangleMesh::computeBoundingBox(){
+    boundingBox.min = Vector(1E9, 1E9, 1E9);
+    boundingBox.max = Vector(-1E9, -1E9, -1E9);
+
+    for (const Vector& v : vertices) {
+        if (v[0] < boundingBox.min[0]) boundingBox.min[0] = v[0];
+        if (v[1] < boundingBox.min[1]) boundingBox.min[1] = v[1];
+        if (v[2] < boundingBox.min[2]) boundingBox.min[2] = v[2];
+
+        if (v[0] > boundingBox.max[0]) boundingBox.max[0] = v[0];
+        if (v[1] > boundingBox.max[1]) boundingBox.max[1] = v[1];
+        if (v[2] > boundingBox.max[2]) boundingBox.max[2] = v[2];
+    }
+}
+
+
+bool BoundingBox::Intersect(Ray& r) const{
+	double tx1 = (min[0] - r.O[0])/r.u[0];
+	double tx2 = (max[0] - r.O[0])/r.u[0];
+	double txMin = std::min(tx1, tx2);
+	double txMax = std::max(tx1, tx2);
+
+	double ty1 = (min[1] - r.O[1])/r.u[1];
+	double ty2 = (max[1] - r.O[1])/r.u[1];
+	double tyMin = std::min(ty1, ty2);
+	double tyMax = std::max(ty1, ty2);
+
+	double tz1 = (min[2] - r.O[2])/r.u[2];
+	double tz2 = (max[2] - r.O[2])/r.u[2];
+	double tzMin = std::min(tz1, tz2);
+	double tzMax = std::max(tz1, tz2);
+
+	if (std::min(txMax, std::min(tyMax, tzMax)) > std::max(txMin, std::max(tyMin, tzMin))){
+		return true;
+	}
+	return false;
+}
+
 void TriangleMesh::scale_translate(double s, const Vector& t){
 	for (int i = 0; i < vertices.size(); i++){
 		vertices[i][0] = vertices[i][0]*s + t[0];
@@ -281,6 +321,9 @@ void TriangleMesh::scale_translate(double s, const Vector& t){
 struct Intersection TriangleMesh::intersect(Ray& r) const {
 	struct Intersection intersection;
 	intersection.intersects = false;
+	if	(! boundingBox.Intersect(r)){
+		return intersection;
+	}
 	double t_prev = 1E9;
 
 	for (int i= 0; i < indices.size(); i++){
@@ -323,10 +366,10 @@ Ray::Ray(Vector o, Vector dir) {
 	this->u = dir;
 }
 Scene::Scene(){
-	// this->arr.push_back(new Sphere(Vector(-20, 0, 0), 10, Vector(0.8, 0.8, 0.8), true));
-    // this->arr.push_back(new Sphere(Vector(0, 0, 0), 10, Vector(0.8, 0.8, 0.8), false));
-	// this->arr.push_back(new Sphere(Vector(20, 0, 0), 10, Vector(0.8, 0.8, 0.8), false));
-    // this->arr.push_back(new Sphere(Vector(20, 0, 0), 9, Vector(0.8, 0.8, 0.8), false));
+	this->arr.push_back(new Sphere(Vector(-20, 0, 0), 10, Vector(0.8, 0.8, 0.8), true));
+    this->arr.push_back(new Sphere(Vector(0, 0, 0), 10, Vector(0.8, 0.8, 0.8), false, true));
+	this->arr.push_back(new Sphere(Vector(20, 0, 0), 10, Vector(0.8, 0.8, 0.8), false, true));
+    this->arr.push_back(new Sphere(Vector(20, 0, 0), 9.5, Vector(0.8, 0.8, 0.8), false, true, true));
 	this->arr.push_back(new Sphere(Vector(1000,0,0), 940, Vector(0.6, 0.5, 0.1)));
 	this->arr.push_back(new Sphere( Vector(-1000,0,0), 940, Vector(0.9, 0.2, 0.9)));
 	this->arr.push_back(new Sphere( Vector(0,0,-1000), 940, Vector(0.4, 0.8, 0.7)));
@@ -356,6 +399,7 @@ Vector Scene::get_colour(Ray& ray, int max_reflection, double n1) const {
 
 	Vector normal = intersection.normal;
 	normal.normalize();
+	if (object->Inner){normal = -normal;}
 	Vector LP = this->lights[0].P - intersection.point + normal*0.00001;
 
 	dist = LP.norm();
@@ -460,36 +504,29 @@ Vector random_vector(Vector& normal){
 		Vector T2 = cross(normal,T1);
 		return x*T1 +y*T2 + z*normal;
 }
-// Ray Plane intersection
-
-
-
-// Bounding box intersection
-// Box containing mesh, if ray doesnt intersect the box, we don't look at the triangles
-// { // Intersection with plane x axis
-// 	double tx = (B.x - O.x)/u.x		// B a point in the plane
-
-// }
 
 
 int main() {
 	int W = 256;
 	int H = 256;
-	TriangleMesh* mesh = new TriangleMesh();
-	mesh->readOBJ("cat.obj");
-	mesh->albedo = Vector(0.8, 0.8, 0.8);
 
-	mesh->scale_translate(0.6, Vector(0,-10,0));
+	Scene scene = Scene();
+
+	// TriangleMesh* mesh = new TriangleMesh();
+	// mesh->readOBJ("cat.obj");
+	// mesh->albedo = Vector(0.8, 0.8, 0.8);
+	// mesh->scale_translate(0.6, Vector(0,-10,0));
+	// mesh->computeBoundingBox();
+	// scene.arr.push_back(mesh);
+
 
 	double alpha = 60*M_PI / 180;
 	Vector camera = Vector(0,0,55);
-	int max_reflection = 2;
-	int N = 5;
+
+	int max_reflection = 5;
+	int N = 100;
 
 	std::vector<unsigned char> image(W * H * 3, 0);
-	Scene scene = Scene();
-	scene.arr.push_back(mesh);
-
 
 	#pragma omp parallel for schedule(dynamic, 1)
 	for (int i = 0; i < H; i++) {

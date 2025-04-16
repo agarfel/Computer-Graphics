@@ -44,19 +44,27 @@ class Light{
 		double I; // Intensity
 	};
 
+class BoundingBox{
+	public:
+		BoundingBox(): min(0,0,0), max(0,0,0){};
+		Vector min, max;
+		bool Intersect(Ray&) const;
+};
+
 class Geometry{
 public:
 	Geometry() : albedo(0, 0, 0), Transparent(false), Mirror(false) {};
-	Geometry(const Vector& albedo, bool Mirror, bool Transparent) : albedo(albedo),Transparent(Transparent), Mirror(Mirror){};
+	Geometry(const Vector& albedo, bool Mirror, bool Transparent, bool inner) : albedo(albedo),Transparent(Transparent), Mirror(Mirror), Inner(inner){};
 	virtual Intersection intersect(Ray&) const = 0;
     Vector albedo;
 	bool Mirror;
 	bool Transparent;
+	bool Inner;
 };
 
 class Sphere : public Geometry {
 public:
-	explicit Sphere(Vector, double, Vector, bool mirror = false, bool transparent = false);
+	explicit Sphere(Vector, double, Vector, bool mirror = false, bool transparent = false, bool inner = false);
     Vector C;
     double R;
 	Intersection intersect(Ray&) const override;
@@ -80,11 +88,14 @@ public:
 	void scale_translate(double, const Vector&);
 	Intersection intersect(Ray&) const override;
 	void readOBJ(const char* obj);
+	void computeBoundingBox();
 	std::vector<TriangleIndices> indices;
 	std::vector<Vector> vertices;
 	std::vector<Vector> normals;
 	std::vector<Vector> uvs;
 	std::vector<Vector> vertexcolors;
+	BoundingBox boundingBox;
+
 };
 
 
@@ -109,7 +120,10 @@ Bounding box implementation:
 		public:
 			BoundingBox(const Vector& m, const Vector& M)
 			Vector Min, Max;
+
+
 	2) add BoundingBox to triabgleMesh class
+
 
 	3) add function:
 	void computeBoundingBox(){
@@ -153,7 +167,7 @@ Bounding box implementation:
 		return false
 	}
 
-	6)In intersect, start by checking if hits bounding box:ADJ_OFFSET_SINGLESHOT
+	6)In intersect, start by checking if hits bounding box:
 	if	(!boundingbox.)
 
 */
