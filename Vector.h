@@ -51,20 +51,28 @@ class BoundingBox{
 		bool Intersect(Ray&) const;
 };
 
+class BVHNode{
+public:
+	BoundingBox BBox;
+	BVHNode* left_child = nullptr;
+	BVHNode* right_child = nullptr;
+	int first, last;
+	void construct(int first, int last);
+};
+
 class Geometry{
 public:
 	Geometry() : albedo(0, 0, 0), Transparent(false), Mirror(false) {};
-	Geometry(const Vector& albedo, bool Mirror, bool Transparent, bool inner) : albedo(albedo),Transparent(Transparent), Mirror(Mirror), Inner(inner){};
+	Geometry(const Vector& albedo, bool Mirror, bool Transparent) : albedo(albedo),Transparent(Transparent), Mirror(Mirror){};
 	virtual Intersection intersect(Ray&) const = 0;
     Vector albedo;
 	bool Mirror;
 	bool Transparent;
-	bool Inner;
 };
 
 class Sphere : public Geometry {
 public:
-	explicit Sphere(Vector, double, Vector, bool mirror = false, bool transparent = false, bool inner = false);
+	explicit Sphere(Vector, double, Vector, bool mirror = false, bool transparent = false);
     Vector C;
     double R;
 	Intersection intersect(Ray&) const override;
@@ -88,14 +96,16 @@ public:
 	void scale_translate(double, const Vector&);
 	Intersection intersect(Ray&) const override;
 	void readOBJ(const char* obj);
-	void computeBoundingBox();
+	BoundingBox computeBoundingBox(int, int);
+	void build_bvh(BVHNode*, int, int);
+
 	std::vector<TriangleIndices> indices;
 	std::vector<Vector> vertices;
 	std::vector<Vector> normals;
 	std::vector<Vector> uvs;
 	std::vector<Vector> vertexcolors;
 	BoundingBox boundingBox;
-
+	BVHNode root;
 };
 
 
@@ -115,59 +125,93 @@ int main();
 
 
 /*
-Bounding box implementation:
-	1) Class BoundingBox
-		public:
-			BoundingBox(const Vector& m, const Vector& M)
-			Vector Min, Max;
+Implement:
+	1) Construct BVH
+	2) Intersection Routine
 
+construct (BVHNode *c, int first, int last) {
+	c->first = first;
+	c->last = last;
+	c->BBox = computeBBox(first, last) [compute bounding box for all triangles between first and last]
+	axis = longest axis(c->BBox)  [Check which axis to split along]
+	M = Middle(BBox, axis) [find middle point along axis]
+	pivot = first [keep track of pivot, progressively swap with current value is value is smaller than axis]
+	for (i = first; i < last; i++){
+		if (bary(triangle[i]) < M) {
+			swap:: Triangle[i], Triangle[pivot];
+			pivot++;
+		} 
+	}
+	construct(c->left, first, pivot);
+	construct(c->right, pivot +1, last);	[rescursive calls]
+}
+BVHNode{
+	BoundingBox BBox(of current node)
+	BVHNode* left_child
+	BVHNode* right_child
+	int first, last [array index of first and last elements]
+}
 
-	2) add BoundingBox to triabgleMesh class
+Depth first traversal of bounding box tree
 
-
-	3) add function:
-	void computeBoundingBox(){
-		bounding_box.m = Vector(1E9, 1E9, 1E9);
-		bounding_box.m = Vector(-1E9, -1E9, -1E9);
-
-		// Progressively try to improve bound
-		for (int i = 0; i < vertoces.size(); i++){
-			for (int j = 0; j < vertoces.size(); i++){
-				for (int k = 0; k < vertoces.size(); i++){
-
-			boundingbox.m[i] = std::min(bounding_box.,[0], vertives[i][o])
-			boundingbox.M[j] = std::max(bounding_box.,[1], vertive[j][1])
-
+intersect(ray){
+	if (!intersect(BBox)){return false}
+	list<BVHNode> l;
+	l->push(root);
+	while (!l->empty()) {
+		c = l->back;
+		l->pop(back)
+		if (!leaf){
+			if(l->left->BBox.intersect(ray)){
+				l->push(c->left)
+			}
+			if(l->right->BBox.intersect(ray)){
+				l->push(c->right)
+			}
+		} else {
+			for (i = c->first; i < c->last; i++) {
+				as before [Moller algorithm]
+			} 
 		}
 	}
+}
 
-	4) Compute bounding box after scaling mesh
 
-	5) Wrtie bounding box intersect function:
+std::vector<std::vector<double<< textures;
+std::vector<int> texturesW
+std::vector<int> texturesh
 
-	bool intersect(const Ray& r){
-		double tx1 = (m[0] - r.O[0])/r.u[0];
-		double tx2 = (M[0] - r.O[0])/r.u[0];
-		double txMin = std::min(tx1, tx2);
-		double txMax = std::max(tx1, tx2);
-
-		double ty1 = (m[1] - r.O[1])/r.u[1];
-		double ty2 = (M[1] - r.O[1])/r.u[1];
-		double tyMin = std::min(ty1, ty2);
-		double tyMax = std::max(ty1, ty2);
-
-		double tz1 = (m[2] - r.O[2])/r.u[2];
-		double tz2 = (M[2] - r.O[2])/r.u[2];
-		double tzMin = std::min(tz1, tz2);
-		double tzMax = std::max(tz1, tz2);
-
-		if (std::min(txmax, tyMax, tzMax) > std::max(txmin, tyMin, tzMin))){
-		return true
-		}
-		return false
+void load_texture (const char* filename){
+	int W,H,C;
+	unsigned char* tex = stbi_load(filename, &W, &H, &C, 3);
+	testuresW.pushback(W);
+	testuresH.pushback(H);
+	std::vector<double< current_tex(W*H*3);
+	for (i=0; i< W*H*3; i++){
+		current_tex[i] = std::pow(tex[i]/255., 2.2);
 	}
+}
 
-	6)In intersect, start by checking if hits bounding box:
-	if	(!boundingbox.)
 
+
+after mesh.readOBJ:
+mesh.load_texture("texture.png");
+
+
+when getting intersection point:
+	return albedo of texture?
+
+
+	// for mesh intersection:
+	Vector UV = alpha* (same as normal with uv instead of n)
+	UV[0] = UV[0]*std::min(texturesW[indices[i].group], texturesW[indices[i].group] -1.); //add also >0
+	UV[1] = (1 - UV[1])*std::min(texturesH[indices[i].group], texturesH[indices[i].group] -1.);
+	int U = UV[0]
+	int V = UV[1]
+	int texHeight = texturesH[indices[i].group]
+	VEctor albedo = Vector(
+		textures[indices[i].group][3*(V*texHeight + U) + 1]
+		textures[indices[i].group][3*(V*texHeight + U) + 2]
+		textures[indices[i].group][3*(V*texHeight + U) + 3]
+		)
 */

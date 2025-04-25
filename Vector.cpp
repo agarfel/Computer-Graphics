@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <algorithm>
 #include "Vector.h"
+#include <list>
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
@@ -229,13 +230,12 @@ double dot(const Vector& a, const Vector& b) {
 Vector cross(const Vector& a, const Vector& b) {
 	return Vector(a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]);
 }
-Sphere::Sphere(Vector c, double r, Vector a, bool reflect, bool transparent, bool inner) {
+Sphere::Sphere(Vector c, double r, Vector a, bool reflect, bool transparent) {
 	this->C = c;
 	this->R = r;
 	this->albedo = a;
 	this->Mirror = reflect;
 	this->Transparent = transparent;
-	this->Inner = inner;
 }
 
 
@@ -273,23 +273,69 @@ struct Intersection Sphere::intersect(Ray& r) const {
     return result;
 }
 
-void TriangleMesh::computeBoundingBox(){
-    boundingBox.min = Vector(1E9, 1E9, 1E9);
-    boundingBox.max = Vector(-1E9, -1E9, -1E9);
+BoundingBox TriangleMesh::computeBoundingBox(int first, int last){
+	BoundingBox result;
+    result.min = Vector(1E9, 1E9, 1E9);
+    result.max = Vector(-1E9, -1E9, -1E9);
 
-    for (const Vector& v : vertices) {
-        if (v[0] < boundingBox.min[0]) boundingBox.min[0] = v[0];
-        if (v[1] < boundingBox.min[1]) boundingBox.min[1] = v[1];
-        if (v[2] < boundingBox.min[2]) boundingBox.min[2] = v[2];
+    for (int i = first; i < last; i++) {
+        const TriangleIndices& tri = indices[i];
 
-        if (v[0] > boundingBox.max[0]) boundingBox.max[0] = v[0];
-        if (v[1] > boundingBox.max[1]) boundingBox.max[1] = v[1];
-        if (v[2] > boundingBox.max[2]) boundingBox.max[2] = v[2];
+        Vector v0 = vertices[tri.vtxi];
+        Vector v1 = vertices[tri.vtxj];
+        Vector v2 = vertices[tri.vtxk];
+
+        for (const Vector& v : {v0, v1, v2}) {
+            result.min[0] = std::min(result.min[0], v[0]);
+            result.min[1] = std::min(result.min[1], v[1]);
+            result.min[2] = std::min(result.min[2], v[2]);
+
+            result.max[0] = std::max(result.max[0], v[0]);
+            result.max[1] = std::max(result.max[1], v[1]);
+            result.max[2] = std::max(result.max[2], v[2]);
+        }
     }
+
+	return result;
 }
 
+void TriangleMesh::build_bvh(BVHNode *c, int first, int last) {
+	c->first = first;
+	c->last = last;
+	c->BBox = computeBoundingBox(first, last);
+	int axis = 0;
+	double max = -1E9;
+	for (int i = 0; i<=2; i++){
+		if(c->BBox.max[i]-c->BBox.min[i] > max){
+			axis = i;
+			max = c->BBox.max[i]-c->BBox.min[i];
+		}
+	}
+	double M = c->BBox.min[axis]+(max/2.0);
+	int pivot = first;
+
+	for (int i = first; i < last; i++){
+		Vector centroid = (vertices[indices[i].vtxi] + vertices[indices[i].vtxj] + vertices[indices[i].vtxk]) / 3.0;
+		if (centroid[axis] < M) {
+			std::swap(indices[i], indices[pivot]);
+			pivot++;
+		} 
+	}
+
+	if (pivot <= first or pivot >= last){
+		return;
+	}
+	if (last - first < 5){
+		return;
+	}
+	c->left_child = new BVHNode();
+	c->right_child = new BVHNode();
+	this->build_bvh(c->left_child, first, pivot);
+	this->build_bvh(c->right_child, pivot, last);
+}
 
 bool BoundingBox::Intersect(Ray& r) const{
+	
 	double tx1 = (min[0] - r.O[0])/r.u[0];
 	double tx2 = (max[0] - r.O[0])/r.u[0];
 	double txMin = std::min(tx1, tx2);
@@ -318,42 +364,64 @@ void TriangleMesh::scale_translate(double s, const Vector& t){
 		vertices[i][2] = vertices[i][2]*s + t[2];
 	}
 }
+
 struct Intersection TriangleMesh::intersect(Ray& r) const {
+
 	struct Intersection intersection;
 	intersection.intersects = false;
-	if	(! boundingBox.Intersect(r)){
+
+
+	if	(! root.BBox.Intersect(r)){
 		return intersection;
 	}
+	std::list<const BVHNode*> l;
+	l.push_back(&this->root);
 	double t_prev = 1E9;
+	while (!l.empty()) {
+		const BVHNode* c = l.back();
+		l.pop_back();
+		if (c->left_child){
+			if(c->left_child->BBox.Intersect(r)){
+				l.push_back(c->left_child);
+			}
+			if(c->right_child->BBox.Intersect(r)){
+				l.push_back(c->right_child);
+			}
+		} else {
+			
 
-	for (int i= 0; i < indices.size(); i++){
-		const Vector& A = vertices[indices[i].vtxi];
-		const Vector& B = vertices[indices[i].vtxj];
-		const Vector& C = vertices[indices[i].vtxk];
+			for (int i = c->first; i < c->last; i++) {
+				const Vector& A = vertices[indices[i].vtxi];
+				const Vector& B = vertices[indices[i].vtxj];
+				const Vector& C = vertices[indices[i].vtxk];
 
-		const Vector e1 = B - A;
-		const Vector e2 = C - A;
-		Vector N = cross(e1, e2);		
-		const Vector AOu = cross((A-r.O),r.u);
-		double invuN = 1/dot(r.u, N);
-		double t = dot(A - r.O, N)*invuN;
-		if (t < 0) continue;
-		double beta = dot(e2, AOu)*invuN;
-		if (beta < 0 or beta > 1) continue;
-		double gamma = -dot(e1, AOu)*invuN;
-		if (gamma < 0 or gamma > 1) continue;
-		double alpha = 1 - beta - gamma;
-		if (alpha < 0 or alpha > 1) continue;
+				const Vector e1 = B - A;
+				const Vector e2 = C - A;
+				Vector N = cross(e1, e2);		
+				const Vector AOu = cross((A-r.O),r.u);
+				double invuN = 1/dot(r.u, N);
+				double t = dot(A - r.O, N)*invuN;
+				if (t < 0) continue;
+				double beta = dot(e2, AOu)*invuN;
+				if (beta < 0 or beta > 1) continue;
+				double gamma = -dot(e1, AOu)*invuN;
+				if (gamma < 0 or gamma > 1) continue;
+				double alpha = 1 - beta - gamma;
+				if (alpha < 0 or alpha > 1) continue;
 
-		if (t > 0.000001 and t < t_prev){
-			Vector P = A + beta*e1 + gamma*e2;
-			t_prev = t;
-			intersection.point = P;
-			intersection.intersects = true;
-			intersection.normal = alpha*normals[indices[i].ni] + beta*normals[indices[i].nj] + gamma*normals[indices[i].nk];
-			intersection.normal.normalize();
+				if (t > 0.000001 and t < t_prev){
+
+					Vector P = A + beta*e1 + gamma*e2;
+					t_prev = t;
+					intersection.point = P;
+					intersection.intersects = true;
+					intersection.normal = alpha*normals[indices[i].ni] + beta*normals[indices[i].nj] + gamma*normals[indices[i].nk];
+					intersection.normal.normalize();
+				}
+			} 
 		}
 	}
+	
 	return intersection;
 };
 
@@ -366,17 +434,17 @@ Ray::Ray(Vector o, Vector dir) {
 	this->u = dir;
 }
 Scene::Scene(){
-	this->arr.push_back(new Sphere(Vector(-20, 0, 0), 10, Vector(0.8, 0.8, 0.8), true));
-    this->arr.push_back(new Sphere(Vector(0, 0, 0), 10, Vector(0.8, 0.8, 0.8), false, true));
-	this->arr.push_back(new Sphere(Vector(20, 0, 0), 10, Vector(0.8, 0.8, 0.8), false, true));
-    this->arr.push_back(new Sphere(Vector(20, 0, 0), 9.5, Vector(0.8, 0.8, 0.8), false, true, true));
+	// this->arr.push_back(new Sphere(Vector(-20, 0, 0), 10, Vector(0.8, 0.8, 0.8), true));
+    // this->arr.push_back(new Sphere(Vector(0, 0, 0), 10, Vector(0.8, 0.8, 0.8), false, true));
+	// this->arr.push_back(new Sphere(Vector(20, 0, 0), 10, Vector(0.8, 0.8, 0.8), false, true));
+    // this->arr.push_back(new Sphere(Vector(20, 0, 0), 9.5, Vector(0.8, 0.8, 0.8), false, true, true));
 	this->arr.push_back(new Sphere(Vector(1000,0,0), 940, Vector(0.6, 0.5, 0.1)));
 	this->arr.push_back(new Sphere( Vector(-1000,0,0), 940, Vector(0.9, 0.2, 0.9)));
 	this->arr.push_back(new Sphere( Vector(0,0,-1000), 940, Vector(0.4, 0.8, 0.7)));
 	this->arr.push_back(new Sphere( Vector(0,1000,0), 940, Vector(0.2, 0.5, 0.9)));
 	this->arr.push_back(new Sphere( Vector(0,-1000,0), 990, Vector(0.3, 0.4, 0.7)));
 	this->arr.push_back(new Sphere( Vector(0,0,1000), 940,  Vector(0.9, 0.4, 0.3)));
-	this->lights.emplace_back(Light(Vector(-10,20,40), 8*pow(10,9)));
+	this->lights.emplace_back(Light(Vector(-10,20,40), 7E9));
 }
 Vector Scene::get_colour(Ray& ray, int max_reflection, double n1) const {
 
@@ -399,7 +467,6 @@ Vector Scene::get_colour(Ray& ray, int max_reflection, double n1) const {
 
 	Vector normal = intersection.normal;
 	normal.normalize();
-	if (object->Inner){normal = -normal;}
 	Vector LP = this->lights[0].P - intersection.point + normal*0.00001;
 
 	dist = LP.norm();
@@ -471,7 +538,7 @@ Vector Scene::get_colour(Ray& ray, int max_reflection, double n1) const {
 	Vector indirect = object->albedo * get_colour(indirect_ray, max_reflection -1, n1);
 
 		
-	return direct_light; // + indirect;
+	return direct_light + indirect;
 }
 
 Vector random_vector(Vector& normal){
@@ -504,29 +571,44 @@ Vector random_vector(Vector& normal){
 		Vector T2 = cross(normal,T1);
 		return x*T1 +y*T2 + z*normal;
 }
+// Ray Plane intersection
+
+
+
+// Bounding box intersection
+// Box containing mesh, if ray doesnt intersect the box, we don't look at the triangles
+// { // Intersection with plane x axis
+// 	double tx = (B.x - O.x)/u.x		// B a point in the plane
+
+// }
 
 
 int main() {
-	int W = 256;
-	int H = 256;
+	int W = 512;
+	int H = 512;
 
 	Scene scene = Scene();
 
-	// TriangleMesh* mesh = new TriangleMesh();
-	// mesh->readOBJ("cat.obj");
-	// mesh->albedo = Vector(0.8, 0.8, 0.8);
-	// mesh->scale_translate(0.6, Vector(0,-10,0));
-	// mesh->computeBoundingBox();
-	// scene.arr.push_back(mesh);
-
-
+	TriangleMesh* mesh = new TriangleMesh();
+	mesh->readOBJ("cat.obj");
+	mesh->albedo = Vector(1,1,1);
+	mesh->scale_translate(0.6, Vector(0,-10,0));
+	BVHNode* root = new BVHNode();
+	mesh->build_bvh(root, 0, mesh->indices.size());
+	mesh->root = *root;
+	scene.arr.push_back(mesh);
+	BoundingBox b = mesh->computeBoundingBox(0,mesh->indices.size());
+	// std::cout << b.min[0] << std::endl;
+	// std::cout << b.max[0] << std::endl;
 	double alpha = 60*M_PI / 180;
 	Vector camera = Vector(0,0,55);
 
 	int max_reflection = 5;
-	int N = 100;
+	int N = 64;
 
 	std::vector<unsigned char> image(W * H * 3, 0);
+	scene.arr.push_back(mesh);
+
 
 	#pragma omp parallel for schedule(dynamic, 1)
 	for (int i = 0; i < H; i++) {
