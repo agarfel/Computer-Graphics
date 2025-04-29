@@ -370,7 +370,6 @@ struct Intersection TriangleMesh::intersect(Ray& r) const {
 	struct Intersection intersection;
 	intersection.intersects = false;
 
-
 	if	(! root.BBox.Intersect(r)){
 		return intersection;
 	}
@@ -388,8 +387,6 @@ struct Intersection TriangleMesh::intersect(Ray& r) const {
 				l.push_back(c->right_child);
 			}
 		} else {
-			
-
 			for (int i = c->first; i < c->last; i++) {
 				const Vector& A = vertices[indices[i].vtxi];
 				const Vector& B = vertices[indices[i].vtxj];
@@ -434,17 +431,20 @@ Ray::Ray(Vector o, Vector dir) {
 	this->u = dir;
 }
 Scene::Scene(){
-	// this->arr.push_back(new Sphere(Vector(-20, 0, 0), 10, Vector(0.8, 0.8, 0.8), true));
-    // this->arr.push_back(new Sphere(Vector(0, 0, 0), 10, Vector(0.8, 0.8, 0.8), false, true));
-	// this->arr.push_back(new Sphere(Vector(20, 0, 0), 10, Vector(0.8, 0.8, 0.8), false, true));
-    // this->arr.push_back(new Sphere(Vector(20, 0, 0), 9.5, Vector(0.8, 0.8, 0.8), false, true, true));
+	this->arr.push_back(new Sphere(Vector(-20, 0, 0), 10, Vector(0.8, 0.8, 0.8), true));
+    this->arr.push_back(new Sphere(Vector(0, 0, 0), 10, Vector(0.8, 0.8, 0.8), false, true));
+	this->arr.push_back(new Sphere(Vector(20, 0, 0), 10, Vector(0.8, 0.8, 0.8), false, true));
+    this->arr.push_back(new Sphere(Vector(20, 0, 0), 9.5, Vector(0.8, 0.8, 0.8), true));
 	this->arr.push_back(new Sphere(Vector(1000,0,0), 940, Vector(0.6, 0.5, 0.1)));
 	this->arr.push_back(new Sphere( Vector(-1000,0,0), 940, Vector(0.9, 0.2, 0.9)));
 	this->arr.push_back(new Sphere( Vector(0,0,-1000), 940, Vector(0.4, 0.8, 0.7)));
 	this->arr.push_back(new Sphere( Vector(0,1000,0), 940, Vector(0.2, 0.5, 0.9)));
 	this->arr.push_back(new Sphere( Vector(0,-1000,0), 990, Vector(0.3, 0.4, 0.7)));
 	this->arr.push_back(new Sphere( Vector(0,0,1000), 940,  Vector(0.9, 0.4, 0.3)));
-	this->lights.emplace_back(Light(Vector(-10,20,40), 7E9));
+	this->lights.emplace_back(Light(Vector(-10,15,30), 7E9));
+	// this->lights.push_back(Light(Vector(25,0,-40), 7E9));
+	// this->lights.push_back(Light(Vector(45,40,35), 7E9));
+
 }
 Vector Scene::get_colour(Ray& ray, int max_reflection, double n1) const {
 
@@ -467,10 +467,6 @@ Vector Scene::get_colour(Ray& ray, int max_reflection, double n1) const {
 
 	Vector normal = intersection.normal;
 	normal.normalize();
-	Vector LP = this->lights[0].P - intersection.point + normal*0.00001;
-
-	dist = LP.norm();
-	Ray r = Ray(intersection.point + (LP/LP.norm()*0.00001), LP/LP.norm());
 
 	if (object->Transparent && (max_reflection > 0)){
 		double n2 = 1.5;
@@ -503,29 +499,34 @@ Vector Scene::get_colour(Ray& ray, int max_reflection, double n1) const {
 		return this->get_colour(refraction_ray, max_reflection -1, n1);
 	}
 	
-
 	if (object->Mirror && max_reflection > 0){
 		Ray mirror_ray = Ray(intersection.point, ray.u - 2*dot(ray.u, normal)*normal);
-		// std::cout << "Mirror" << std::endl;
 		return this->get_colour(mirror_ray, max_reflection -1, n1);
 	}
 
-	// Check for shadow
-	bool shadow = false;
-	for (auto s : this->arr) {
-		struct Intersection tmp = s->intersect(r);
-		if (tmp.intersects && ((intersection.point - tmp.point).norm() < dist)) {
-			shadow = true;
-		}
-	} 
-	// Direct Light
 	Vector direct_light = Vector();
-	if (not shadow){
-		Vector material = object->albedo/M_PI;
-		double attenuation = this->lights[0].I / (4 * M_PI * LP.norm2());
-		double angle = dot(normal, LP/LP.norm());
-		if (angle >= 0 ){
-			direct_light =  angle*material*attenuation;
+	for (auto l : this->lights) {
+		Vector LP = l.P - intersection.point + normal*0.00001;
+
+		dist = LP.norm();
+		Ray r = Ray(intersection.point + (LP/LP.norm()*0.00001), LP/LP.norm());
+
+		// Check for shadow
+		bool shadow = false;
+		for (auto s : this->arr) {
+			struct Intersection tmp = s->intersect(r);
+			if (tmp.intersects && ((intersection.point - tmp.point).norm() < dist)) {
+				shadow = true;
+			}
+		} 
+		// Direct Light
+		if (not shadow){
+			Vector material = object->albedo/M_PI;
+			double attenuation = l.I / (4 * M_PI * LP.norm2());
+			double angle = dot(normal, LP/LP.norm());
+			if (angle >= 0 ){
+				direct_light = direct_light + (angle*material*attenuation);
+			}
 		}
 	}
 	if (max_reflection == 0){return direct_light; }
@@ -534,17 +535,13 @@ Vector Scene::get_colour(Ray& ray, int max_reflection, double n1) const {
 	// Indirect Light
 	Vector random_dir = random_vector(normal);
 	Ray indirect_ray = Ray(intersection.point + 0.00001*random_dir, random_dir);
-	// std::cout << "Indirect" << std::endl;
 	Vector indirect = object->albedo * get_colour(indirect_ray, max_reflection -1, n1);
 
 		
 	return direct_light + indirect;
 }
-
 Vector random_vector(Vector& normal){
 
-	// Sample Random Direction
-		// Compute x, y, z
 		double r1 = unif(engine);
 		double r2 = unif(engine);
 
@@ -571,17 +568,6 @@ Vector random_vector(Vector& normal){
 		Vector T2 = cross(normal,T1);
 		return x*T1 +y*T2 + z*normal;
 }
-// Ray Plane intersection
-
-
-
-// Bounding box intersection
-// Box containing mesh, if ray doesnt intersect the box, we don't look at the triangles
-// { // Intersection with plane x axis
-// 	double tx = (B.x - O.x)/u.x		// B a point in the plane
-
-// }
-
 
 int main() {
 	int W = 512;
@@ -589,30 +575,30 @@ int main() {
 
 	Scene scene = Scene();
 
-	TriangleMesh* mesh = new TriangleMesh();
-	mesh->readOBJ("cat.obj");
-	mesh->albedo = Vector(1,1,1);
-	mesh->scale_translate(0.6, Vector(0,-10,0));
-	BVHNode* root = new BVHNode();
-	mesh->build_bvh(root, 0, mesh->indices.size());
-	mesh->root = *root;
-	scene.arr.push_back(mesh);
-	BoundingBox b = mesh->computeBoundingBox(0,mesh->indices.size());
-	// std::cout << b.min[0] << std::endl;
-	// std::cout << b.max[0] << std::endl;
+	// TriangleMesh* mesh = new TriangleMesh();
+	// mesh->readOBJ("cat.obj");
+	// mesh->albedo = Vector(1,1,1);
+	// mesh->Transparent = true;
+	// mesh->scale_translate(0.4, Vector(-15,-10,0));
+	// BVHNode* root = new BVHNode();
+	// mesh->build_bvh(root, 0, mesh->indices.size());
+	// mesh->root = *root;
+	// scene.arr.push_back(mesh);
+	// BoundingBox b = mesh->computeBoundingBox(0,mesh->indices.size());
+	// scene.arr.push_back(mesh);
+
+
 	double alpha = 60*M_PI / 180;
 	Vector camera = Vector(0,0,55);
 
 	int max_reflection = 5;
-	int N = 64;
+	int N = 32;
 
 	std::vector<unsigned char> image(W * H * 3, 0);
-	scene.arr.push_back(mesh);
 
 
 	#pragma omp parallel for schedule(dynamic, 1)
 	for (int i = 0; i < H; i++) {
-		// int tid = omp_get_thread_num();
 		for (int j = 0; j < W; j++) {
 			Vector colour = Vector();
 			for (int n = 0; n < N; n++) {
