@@ -56,7 +56,35 @@ Vector cross(const Vector& a, const Vector& b) {
 class Polygon {  
     public:
         std::vector<Vector> vertices;
-    };  
+        double area(){
+            double s = 0;
+            if (vertices.size() < 3){return s;}
+            for (int i = 0; i < vertices.size(); i++){
+                int ip = (i==vertices.size()-1)? 0: (i+1);
+                s += (vertices[i][0]*vertices[ip][1] - vertices[ip][0]*vertices[i][1]);
+            }
+            return std::abs(s)/2;
+        }
+        double integral_sqr_d(const Vector& Pi){
+            double s = 0;
+            if (vertices.size() < 3){return s;}
+            for (int t=1; t< vertices.size()-1; t++){
+                Vector c[3] = {vertices[0],vertices[t],vertices[t+1]};
+                double integralT = 0;
+                for (int k = 0; k<3; k++){
+                    for (int l = k; l<3; l++){
+                        integralT += dot(c[k]-Pi, c[l]-Pi);
+                    }
+                }
+                Vector edge1 = c[1] - c[0];
+                Vector edge2 = c[2] - c[0];
+
+                double areaT = 0.5*std::abs(edge1[0]*edge2[1] - edge1[1]*edge2[0]);
+                s+= integralT* areaT/6.;
+            }
+            return s;
+        }
+    };   
      
     // saves a static svg file. The polygon vertices are supposed to be in the range [0..1], and a canvas of size 1000x1000 is created
     void save_svg(const std::vector<Polygon> &polygons, std::string filename, std::string fillcol = "none") {
