@@ -84,6 +84,20 @@ class Polygon {
             }
             return s;
         }
+        Vector centroid(){
+            Vector c(0,0,0);
+            if (vertices.size() < 3){return c;}
+
+            for (int i = 0; i < vertices.size(); i++){
+                int ip = (i==vertices.size()-1)? 0: (i+1);
+                double crossP = (vertices[i][0]*vertices[ip][1] - vertices[ip][0]*vertices[i][1]);
+                c = c - (vertices[i ]+ vertices[ip])*crossP;        //DOUBT + or -
+            }
+            double a = area();
+            c = c/(6.*a);
+            return c;
+        }
+        
     };   
      
     // saves a static svg file. The polygon vertices are supposed to be in the range [0..1], and a canvas of size 1000x1000 is created
