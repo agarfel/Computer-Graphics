@@ -1,7 +1,5 @@
 # Ray Tracer Project
 
-By Ángela Garcinuño Feliciano.
-
 Includes:
   - Diffusion
   - Direct lighting
@@ -14,3 +12,12 @@ Includes:
   - Bounding Boxes
   - BVH
   - Multiple Light Sources
+
+# Fluid Simulator Project
+
+Includes:
+  - Voronoï Diagrams
+  - Power Diagrams
+  - Fluid Simulator
+
+By Ángela Garcinuño Feliciano
